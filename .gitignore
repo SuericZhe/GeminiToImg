@@ -14,9 +14,10 @@ ENV/
 env.bak/
 venv.bak/
 
-# Ignore generated outputs and local state (Optional but recommended)
-# generated_images/
-# chat_history_save.json
+# Ignore generated outputs and local state
+generated_images/
+chat_history_save.json
+local_images/
 # my_work_files/
 
 # Ignore IDE settings
