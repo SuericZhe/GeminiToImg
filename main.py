@@ -4,6 +4,7 @@ import sys
 import threading
 import mimetypes
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -37,6 +38,30 @@ def show_runtime(stop_event):
             time.sleep(0.1)
     except KeyboardInterrupt:
         pass
+
+def _compress_if_large(path, max_mb=2):
+    """若图片超过 max_mb MB，压缩为 JPEG 后覆盖保存，返回最终路径。"""
+    if not os.path.exists(path) or os.path.getsize(path) <= max_mb * 1024 * 1024:
+        return path
+    try:
+        from PIL import Image
+        import io
+        img = Image.open(path).convert("RGB")
+        jpg_path = os.path.splitext(path)[0] + ".jpg"
+        for quality in range(85, 25, -10):
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=quality)
+            if buf.tell() <= max_mb * 1024 * 1024:
+                with open(jpg_path, "wb") as f:
+                    f.write(buf.getvalue())
+                if path != jpg_path:
+                    os.remove(path)
+                print(f"   📦 压缩至 {buf.tell()//1024}KB (JPEG q={quality})")
+                return jpg_path
+    except Exception:
+        pass
+    return path
+
 
 def generate_my_image(prompt, model_alias="banana2", image_paths=None, num_images=1, seed=None, use_vertex=False, output_dir="generated_images", file_prefix=None):
     """
@@ -106,65 +131,101 @@ def generate_my_image(prompt, model_alias="banana2", image_paths=None, num_image
     # ==========================================
     # 执行生成与结果解析
     # ==========================================
+    # 重试 & 超时配置
+    MAX_RETRIES     = 4
+    RETRY_DELAYS    = [30, 60, 120, 180]   # 429 等待时间（秒）
+    REQUEST_INTERVAL= 12                   # 每张图之间的固定间隔（秒）
+    GEN_TIMEOUT     = 90                   # 单次生成超时（秒），超时则重试
+
     try:
         for i in range(num_images):
             print(f"\n🎨 正在生成第 {i+1}/{num_images} 张...")
-            
-            stop_event = threading.Event()
-            timer_thread = threading.Thread(target=show_runtime, args=(stop_event,), daemon=True)
-            overall_start = time.time()
-            
-            try:
-                timer_thread.start()
-                
-                config = types.GenerateContentConfig(
-                    candidate_count=1,
-                    seed=seed if seed is not None else None,
-                    response_modalities=[types.Modality.IMAGE]
-                )
 
-                response = client.models.generate_content(
-                    model=model_id,
-                    contents=contents_to_send,
-                    config=config
-                )
+            if i > 0:
+                # 允许在等待间隔中被 Ctrl+C 中断
+                for _ in range(REQUEST_INTERVAL * 10):
+                    time.sleep(0.1)
 
-                stop_event.set()
-                timer_thread.join()
-                
-                duration = time.time() - overall_start
-                image_saved = False
-                
-                if response.candidates and response.candidates[0].content.parts:
-                    for part in response.candidates[0].content.parts:
-                        raw_data = None
-                        if hasattr(part, 'inline_data') and part.inline_data: raw_data = part.inline_data.data
-                        elif hasattr(part, 'data'): raw_data = part.data
-                        
-                        if raw_data:
-                            timestamp = int(time.time())
-                            ch = "vertex" if use_vertex else "api"
-                            seed_str = f"seed{seed}" if seed is not None else "rnd"
-                            name_prefix = file_prefix if file_prefix else f"{mode}_{ch}_{model_alias}"
-                            file_name = f"{name_prefix}_{timestamp}_{seed_str}_{i+1}.png"
-                            full_path = os.path.join(output_dir, file_name)
+            for attempt in range(MAX_RETRIES + 1):
+                stop_event = threading.Event()
+                timer_thread = threading.Thread(target=show_runtime, args=(stop_event,), daemon=True)
+                overall_start = time.time()
 
-                            with open(full_path, "wb") as f:
-                                f.write(raw_data)
+                try:
+                    timer_thread.start()
 
-                            saved_paths.append(full_path)
-                            print(f"\n✅ 保存成功: {full_path} (耗时 {duration:.1f}s)")
-                            image_saved = True
-                            break
-                
-                if not image_saved:
-                    print(f"\n⚠️ 未获取到图片数据。原因: {response.candidates[0].finish_reason if response.candidates else '未知'}")
+                    config = types.GenerateContentConfig(
+                        candidate_count=1,
+                        seed=seed if seed is not None else None,
+                        response_modalities=[types.Modality.IMAGE]
+                    )
 
-            except Exception as e:
-                stop_event.set()
-                if timer_thread.is_alive(): timer_thread.join()
-                print(f"\n❌ 生成失败: {e}")
-                continue
+                    # 带超时的生成调用（超过 GEN_TIMEOUT 秒视为超时）
+                    with ThreadPoolExecutor(max_workers=1) as _exec:
+                        _fut = _exec.submit(
+                            client.models.generate_content,
+                            model=model_id,
+                            contents=contents_to_send,
+                            config=config
+                        )
+                        response = _fut.result(timeout=GEN_TIMEOUT)
+
+                    stop_event.set()
+                    timer_thread.join()
+
+                    duration = time.time() - overall_start
+                    image_saved = False
+
+                    if response.candidates and response.candidates[0].content.parts:
+                        for part in response.candidates[0].content.parts:
+                            raw_data = None
+                            if hasattr(part, 'inline_data') and part.inline_data: raw_data = part.inline_data.data
+                            elif hasattr(part, 'data'): raw_data = part.data
+
+                            if raw_data:
+                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                ch = "vertex" if use_vertex else "api"
+                                seed_str = f"seed{seed}" if seed is not None else "rnd"
+                                name_prefix = file_prefix if file_prefix else f"{mode}_{ch}_{model_alias}"
+                                file_name = f"{name_prefix}_{timestamp}_{seed_str}_{i+1}.png"
+                                full_path = os.path.join(output_dir, file_name)
+
+                                with open(full_path, "wb") as f:
+                                    f.write(raw_data)
+
+                                # 超过 2MB 则压缩为 JPEG
+                                full_path = _compress_if_large(full_path, max_mb=2)
+                                saved_paths.append(full_path)
+                                print(f"\n✅ 保存成功: {full_path} (耗时 {duration:.1f}s)")
+                                image_saved = True
+                                break
+
+                    if not image_saved:
+                        print(f"\n⚠️ 未获取到图片数据。原因: {response.candidates[0].finish_reason if response.candidates else '未知'}")
+                    break  # 成功或无数据，跳出重试循环
+
+                except (FuturesTimeoutError, TimeoutError):
+                    stop_event.set()
+                    if timer_thread.is_alive(): timer_thread.join()
+                    if attempt < MAX_RETRIES:
+                        print(f"\n⏳ 生成超时（>{GEN_TIMEOUT}s），立即重试 (第{attempt+1}/{MAX_RETRIES}次)…")
+                    else:
+                        print(f"\n❌ 超时重试耗尽，跳过本张")
+                        break
+
+                except Exception as e:
+                    stop_event.set()
+                    if timer_thread.is_alive(): timer_thread.join()
+                    err_str = str(e)
+
+                    if "429" in err_str and attempt < MAX_RETRIES:
+                        wait = RETRY_DELAYS[attempt]
+                        print(f"\n⏳ 触发限流 (429)，等待 {wait}s 后重试 (第{attempt+1}/{MAX_RETRIES}次)…")
+                        for _ in range(wait * 10):
+                            time.sleep(0.1)
+                    else:
+                        print(f"\n❌ 生成失败: {e}")
+                        break
 
     except KeyboardInterrupt:
         print(f"\n\n🛑 程序已由用户强制停止 (Ctrl+C)。")
@@ -182,7 +243,7 @@ if __name__ == "__main__":
     ENV_USE_VERTEX = os.getenv("USE_VERTEX_AI", "False").strip().lower() in ("true", "1", "yes")
     
     # 1. 生成数量
-    COUNT = 2
+    COUNT = 1
 
     # 2. 提示词 (文生图或图生图指令)
     PRODUCT_DETAIL = "这是铝箔盒封口机，根据这个机器的特点进行重新设计，全英，不要水印，能作为亚马逊电商主图，极致细节，比例1:1"

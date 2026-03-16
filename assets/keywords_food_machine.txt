@@ -1,89 +1,81 @@
-# 食品机械关键词组 —— 阿里国际站 SEO 关键词库
-# 说明：按类别分组，Gemini 在生成标题时优先融入高权重词
-# ============================================================
-
-## 【核心产品词】高搜索权重，必须出现在标题中
-commercial kitchen equipment
-food processing machine
-industrial food machinery
-stainless steel food machine
-restaurant kitchen equipment
-hotel kitchen equipment
-catering equipment
-
-## 【材质/品质词】建立信任感，B2B买家高度关注
-304 stainless steel
-food grade stainless steel
-heavy duty
-commercial grade
-durable
-rust resistant
-hygienic design
-easy to clean
-
-## 【认证/合规词】出口必备，提升专业度
-CE certified
-CE approved
-ISO standard
-food safe
-NSF standard
-RoHS compliant
-220V/50Hz
-110V/60Hz
-
-## 【效率/功能词】突出ROI和生产力
-high efficiency
-high capacity
-energy saving
-time saving
-labor saving
-automatic
-semi-automatic
-multi-function
-adjustable speed
-precise temperature control
-
-## 【场景/行业词】精准匹配买家身份
-restaurant
-bakery
-hotel
-food factory
-catering company
-food processing plant
-supermarket
-snack bar
-fast food
-school canteen
-hospital kitchen
-
-## 【包装/物流词】B2B采购关注点
-export packing
-wooden case packing
-foam protection
-bulk order available
-OEM accepted
-custom logo
-fast delivery
-reliable supplier
-
-## 【常见食品机械品类关键词】
-noodle making machine
-dough mixer
-meat grinder
-vegetable cutter
-food slicer
-bread maker
-dough sheeter
-pasta machine
-dumpling machine
-spring roll machine
-stuffing mixer
-tray sealer
-vacuum packing machine
+tray packing machine
+egg tray packing machine
+tray feeder packing machine
+fresh mushroom tray packing machine dry
+plastic tray forming and packing machine
+automatic tray packing machine
+tray packing and filling machine
+food tray sealing plastic film packing machine tray sealer modified atmosphere packing machine
+"aluminium Bag Sealing Machine
+food Bag Sealing Machine
+vacuum And Sealing Packaging Machine
+For Smallbusiness
+plastic Tray And Cover Film Packing Machine
+high Oxygen Vacuum Pump Packing Machine
+wrapping Machine For Beverages
+food Packaging Machine
+electric Driven Packaging Machine
+multi-purpose Packaging Machine"
+heat sealing machine
+film packaging sealing machine
+electric driven sealing machine
+semi-automatic sealing device
 sealing machine
-fryer machine
-steamer
-cooking pot
-tilting pan
-blender
-juicer
+electric driven sealer
+aluminum foil sealer
+chemical application sealer
+commodity application sealer
+food application sealer"
+Aluminum Foil Box Sealing Machine Hand Press Sealing Commercial Takeout Baler Catering Bowl Food Box Sealing Machine
+"wrapping Machine For Beverages
+food Packaging Machine
+electric Driven Packaging Machine
+multi-purpose Packaging Machine
+aluminium Bag Sealing Machine
+food Bag Sealing Machine
+vacuum And Sealing Packaging Machine For Smallbusiness
+plastic Tray And Cover Film Packing Machine
+high Oxygen Vacuum Pump Packing Machine
+"box takeaway desktop small sealing machine
+tabletop sealers
+aluminum foil lunch box sealer
+honey spoon machine
+round aluminum foil container lid box tray sealer sealing machine
+semi-automatic round instant coffee sealing machine
+Aluminum Foil Box Sealing Machine Hand Press Commercial Takeout Baler Catering Bowl Food Box Sealing Machine Hand Pressure"
+"Aluminum foil box sealing machine
+Manual aluminum foil box sealing machine
+Food cling film sealing machine
+fast food box packing and sealing machine
+Hand Operated Electric Ice Cream Cube Chocolate Sandwich Dry Fruits Disposable Instant Noodle Fast Food Box Sealing Machine"
+High Quality Semi Automatic Table Top Food manual water glass sealing machine Bowl Sealer Cup Tray Sealing Machine
+Aluminum Foil Box Sealing Machine
+aluminum Square And Round Foil Lid Food Container Sealing Machine
+High Quality Aluminum Foil Food Container Sealer
+aluminum Foil Lid Sealer"
+"Manual Plastic/food Tray Sealing Machine
+Manual Plastic Tray Sealer Machine
+Semi Automatic Table Top Food Tray Sealer
+Hand Press Square Box Packaging Machine
+Stainless Steel Electric Semi-automatic Fast Ready Food Tray Sealing Machine
+Semi-automatic Sealing Machine Trays Tofu Boxes Sealer
+Automatic Cup Sealer Milk Cup Sealing Machine"
+"Heat Sealing Machine For Tea Bags
+aluminium Bag Sealing Machine
+food Bag Sealing Machine
+vacuum And Sealing Packaging Machine For Smallbusiness
+plastic Tray And Cover Film Packing Machine
+high Oxygen Vacuum Pump Packing Machine
+wrapping Machine For Beverages
+food Packaging Machine
+electric Driven Packaging Machine"
+Easy-to-operate electric desktop
+Easily portable aluminum foil
+Food & film heat seal durable
+Semi-automatic electric seamer
+Highly efficient carbon steel
+semi-automatic sealing machine
+seamer for food & film
+Easily portable electric desktop
+Semi-automatic carbon steel sealer
+High efficiency aluminum foil sealer
