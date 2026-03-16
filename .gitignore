@@ -1,0 +1,28 @@
+# Ignore environment variables and secrets
+.env
+key/
+
+# Ignore Python cache and virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Ignore generated outputs and local state (Optional but recommended)
+# generated_images/
+# chat_history_save.json
+# my_work_files/
+
+# Ignore IDE settings
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+Thumbs.db
