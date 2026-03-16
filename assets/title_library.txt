@@ -1,0 +1,30 @@
+# 标题参考库 —— 阿里国际站食品机械
+# 说明：以下是高绩效标题示例，供 Gemini 学习参考风格和结构
+# 格式要求：100-108 英文字符，关键词自然融入，突出核心卖点
+# ============================================================
+
+# --- 面团/揉面类 ---
+Commercial Dough Mixer Machine 15L Heavy Duty Spiral Mixer Stainless Steel Bakery Equipment CE Approved
+Commercial 20L Spiral Dough Mixer Heavy Duty Stainless Steel Bread Kneading Machine for Bakery Restaurant
+Industrial Stand Mixer 30L Planetary Mixer Commercial Dough Kneader 1500W Stainless Steel Food Equipment
+
+# --- 切割/切片类 ---
+Commercial Vegetable Cutting Machine Multi-Function Slicer Dicer Stainless Steel Restaurant Kitchen Equipment
+Industrial Meat Slicer Machine Commercial Deli Slicer Electric Stainless Steel Food Slicing Equipment 200W
+
+# --- 包装/封口类 ---
+Commercial Tray Sealing Machine Automatic Food Tray Sealer Modified Atmosphere Packaging CE Certified 220V
+Semi-Automatic Vacuum Packing Machine Commercial Food Sealer Stainless Steel 300mm Seal Bar CE Approved
+
+# --- 面条类 ---
+Commercial Noodle Making Machine Electric Fresh Noodle Maker Stainless Steel Restaurant Equipment 220V CE
+Industrial Noodle Machine Automatic Fresh Noodle Maker 304 Stainless Steel 3kg/min Restaurant Kitchen Use
+
+# --- 炸锅/煮锅类 ---
+Commercial Deep Fryer Machine Stainless Steel Gas Electric Dual Control Restaurant Kitchen Frying Equipment
+Industrial Cooking Pot Commercial Electric Tilting Braising Pan 100L Stainless Steel Hotel Kitchen Equipment
+
+# --- 通用高绩效结构参考 ---
+# 结构一: [产品类型] + [关键规格] + [材质/认证] + [适用场景]
+# 结构二: [核心功能词] + [产品名] + [容量/功率] + [卖点] + [目标客户]
+# 结构三: [Industrial/Commercial] + [产品名] + [规格] + [材质] + [认证/标准]

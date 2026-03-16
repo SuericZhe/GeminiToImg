@@ -38,7 +38,7 @@ def show_runtime(stop_event):
     except KeyboardInterrupt:
         pass
 
-def generate_my_image(prompt, model_alias="banana2", image_paths=None, num_images=1, seed=None, use_vertex=False):
+def generate_my_image(prompt, model_alias="banana2", image_paths=None, num_images=1, seed=None, use_vertex=False, output_dir="generated_images", file_prefix=None):
     """
     终极融合版：完全由 .env 驱动的生成核心
     """
@@ -79,8 +79,8 @@ def generate_my_image(prompt, model_alias="banana2", image_paths=None, num_image
     # ==========================================
     # 资源预加载与模式判定
     # ==========================================
-    output_dir = "generated_images"
     os.makedirs(output_dir, exist_ok=True)
+    saved_paths = []
 
     paths = []
     if isinstance(image_paths, str): paths = [image_paths]
@@ -143,14 +143,16 @@ def generate_my_image(prompt, model_alias="banana2", image_paths=None, num_image
                         
                         if raw_data:
                             timestamp = int(time.time())
-                            prefix = "vertex" if use_vertex else "api"
+                            ch = "vertex" if use_vertex else "api"
                             seed_str = f"seed{seed}" if seed is not None else "rnd"
-                            file_name = f"{mode}_{prefix}_{model_alias}_{timestamp}_{seed_str}_{i+1}.png"
+                            name_prefix = file_prefix if file_prefix else f"{mode}_{ch}_{model_alias}"
+                            file_name = f"{name_prefix}_{timestamp}_{seed_str}_{i+1}.png"
                             full_path = os.path.join(output_dir, file_name)
-                            
+
                             with open(full_path, "wb") as f:
                                 f.write(raw_data)
-                            
+
+                            saved_paths.append(full_path)
                             print(f"\n✅ 保存成功: {full_path} (耗时 {duration:.1f}s)")
                             image_saved = True
                             break
@@ -167,6 +169,8 @@ def generate_my_image(prompt, model_alias="banana2", image_paths=None, num_image
     except KeyboardInterrupt:
         print(f"\n\n🛑 程序已由用户强制停止 (Ctrl+C)。")
         sys.exit(0)
+
+    return saved_paths
 
 if __name__ == "__main__":
     # ==========================================

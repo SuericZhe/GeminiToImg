@@ -1,0 +1,89 @@
+# 食品机械关键词组 —— 阿里国际站 SEO 关键词库
+# 说明：按类别分组，Gemini 在生成标题时优先融入高权重词
+# ============================================================
+
+## 【核心产品词】高搜索权重，必须出现在标题中
+commercial kitchen equipment
+food processing machine
+industrial food machinery
+stainless steel food machine
+restaurant kitchen equipment
+hotel kitchen equipment
+catering equipment
+
+## 【材质/品质词】建立信任感，B2B买家高度关注
+304 stainless steel
+food grade stainless steel
+heavy duty
+commercial grade
+durable
+rust resistant
+hygienic design
+easy to clean
+
+## 【认证/合规词】出口必备，提升专业度
+CE certified
+CE approved
+ISO standard
+food safe
+NSF standard
+RoHS compliant
+220V/50Hz
+110V/60Hz
+
+## 【效率/功能词】突出ROI和生产力
+high efficiency
+high capacity
+energy saving
+time saving
+labor saving
+automatic
+semi-automatic
+multi-function
+adjustable speed
+precise temperature control
+
+## 【场景/行业词】精准匹配买家身份
+restaurant
+bakery
+hotel
+food factory
+catering company
+food processing plant
+supermarket
+snack bar
+fast food
+school canteen
+hospital kitchen
+
+## 【包装/物流词】B2B采购关注点
+export packing
+wooden case packing
+foam protection
+bulk order available
+OEM accepted
+custom logo
+fast delivery
+reliable supplier
+
+## 【常见食品机械品类关键词】
+noodle making machine
+dough mixer
+meat grinder
+vegetable cutter
+food slicer
+bread maker
+dough sheeter
+pasta machine
+dumpling machine
+spring roll machine
+stuffing mixer
+tray sealer
+vacuum packing machine
+sealing machine
+fryer machine
+steamer
+cooking pot
+tilting pan
+blender
+juicer
