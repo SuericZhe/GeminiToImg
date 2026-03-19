@@ -89,11 +89,12 @@ def run(
 
     # ── Step 3 ─────────────────────────────────────────────────────
     if "3" not in skip:
-        print("\n▶ Step 3/4  生成重设计 Prompt…")
+        print("\n▶ Step 3/5  正在调用 Gemini Pro 视觉导演生成重设计方案…")
         build_redesign_prompts.run(
             product_name = product_name,
             listing_ids  = listing_ids,
             work_folder  = WORK_FOLDER,
+            use_gemini   = True, # 强制开启视觉导演模式
         )
     else:
         prompts_path = os.path.join("products", product_name, "redesign_prompts.json")

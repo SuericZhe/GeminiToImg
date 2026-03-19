@@ -161,6 +161,7 @@ Images are in order, numbered {start_num} through {end_num}.
 For EACH image, determine:
 1. Whether it contains product-relevant content worth keeping
 2. If useful: assign a category label and write a brief Chinese description
+3. EXTRACT all visible Chinese texts that need to be replaced with English for a global listing (e.g., button labels, feature titles, descriptions).
 
 Mark useful=false ONLY for: company/factory intro with no product, pure contact/address info,
 blank pages, decorative borders, QR code only, footer/header only.
@@ -177,14 +178,16 @@ Return ONLY valid JSON:
       "file": "(original filename)",
       "useful": true,
       "category": "产品外观",
-      "description": "展示机器整体外观，左侧为操作面板，右侧为封口压臂"
+      "description": "展示机器整体外观，左侧为操作面板，右侧为封口压臂",
+      "chinese_texts": ["封口", "切断", "计数"]
     }},
     {{
       "index": {start_num + 1},
       "file": "(original filename)",
       "useful": false,
       "category": null,
-      "description": "公司联系方式页，无产品信息"
+      "description": "公司联系方式页，无产品信息",
+      "chinese_texts": []
     }}
   ]
 }}
@@ -255,6 +258,14 @@ def analyze_folder(
 
     if output_file is None:
         output_file = os.path.join(folder_path, "analysis_result.json")
+
+    # ── 检查是否已有 analysis_result.json ──
+    if os.path.exists(output_file):
+        ans = input(f"\n⚠️  已存在 {os.path.basename(output_file)}，[o]覆盖 / [s]跳过 (默认跳过): ").strip().lower()
+        if ans != "o":
+            print(f"   ⏭  跳过，使用已有数据: {output_file}")
+            with open(output_file, encoding="utf-8") as f:
+                return json.load(f)
 
     print(f"\n📂 分析文件夹: {folder_path}")
 

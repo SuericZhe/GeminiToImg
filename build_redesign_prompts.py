@@ -23,6 +23,7 @@ from datetime import datetime
 import product_manager
 import gemini_client
 from google.genai import types
+from ui_utils import timed_choose
 
 # ══════════════════════════════════════════════════════════════════════
 # 五套视觉风格（与 listing_prompt_config.py 中的5个角度对应）
@@ -127,90 +128,114 @@ def build_prompt_template(image_info: dict, listing: dict,
 
 
 # ══════════════════════════════════════════════════════════════════════
-# 模式 B：Gemini 视觉辅助生成更精准的 Prompt
+# 模式 B：Gemini 视觉辅助生成更精准的 Prompt (视觉导演模式)
 # ══════════════════════════════════════════════════════════════════════
 
-META_PROMPT_TEMPLATE = """\
-You are an AI image generation prompt engineer for Alibaba International product listings.
-Your task: write an image generation prompt that will REDESIGN the attached product photo.
+VISUAL_DIRECTOR_PROMPT = """\
+You are an elite AI Visual Director for Alibaba International. Your mission is to redesign a product image so it PERFECTLY matches a specific marketing listing created in Step 2.
 
-PRODUCT: {product_name_en}
-THIS IMAGE SHOWS: [{category}] {desc}
+### MISSION:
+Analyze the product photo and the specific "Marketing Angle" provided. Create a redesign prompt that isn't just "pretty," but is a "visual conversion machine" for that specific target audience.
 
-TARGET LISTING ANGLE: {angle}
-TARGET CUSTOMER: {target}
-LISTING TITLE: {title}
-KEY SELLING POINTS:
+### INPUTS FROM STEP 1 & 2:
+- **Product**: {product_name_en}
+- **Image Category**: {category}
+- **Image Description**: {desc}
+- **Chinese Texts detected**: {chinese_texts}
+- **LISTING ANGLE (The Soul)**: {angle} ({cn_label})
+- **TARGET AUDIENCE**: {target}
+- **SPECIFIC SELLING POINTS TO HIGHLIGHT**:
 {sp_block}
 
-VISUAL STYLE TO APPLY ({cn_label}):
-  Color palette : {palette}
-  Lighting      : {lighting}
-  Background    : {background}
-  Mood          : {mood}
-  Text placement: {text_style}
+### MANDATORY DESIGN RULES:
+1. **Visual Alignment**: The environment, lighting, and "mood" MUST be derived from the **Listing Angle**. (e.g., if the angle is "Industrial Efficiency," show a high-power, high-speed industrial vibe; if "Small Business," show a friendly, accessible, modern vibe).
+2. **Product Fidelity**: KEEP the machine's exact physical form, shape, and color. Do not change the machine itself.
+3. **"English-First" Transformation**: 
+   - REMOVE ALL Chinese text/watermarks.
+   - REPLACE them with the English terms provided or inferred.
+   - INTEGRATE the Selling Points into the scene (e.g., as clean, professional text overlays or via visual storytelling).
+4. **Cinematic Quality**: Use professional photography terms (e.g., "Depth of field," "8k resolution," "Ray tracing," "Clean composition").
 
-Write a detailed, specific image generation prompt (100–200 words) that:
-1. References specific visual elements you observe in the attached image
-2. Clearly instructs to KEEP the machine's exact physical form, shape, color, all parts
-3. Clearly instructs to REMOVE all Chinese text, watermarks, brand logos from the image
-4. Applies the visual style above precisely
-5. Adds English text overlays: headline "{primary_kw}", plus 1-2 feature callouts
-6. Specifies 1:1 square aspect ratio, photorealistic, 2K quality
-7. States "zero Chinese characters anywhere"
+### OUTPUT FORMAT:
+Return ONLY a JSON object:
+{{
+  "design_reasoning": "用中文简述：你如何根据该组 Listing 的特定卖点和受众来设计这组视觉方案的。",
+  "image_prompt": "A long, detailed English prompt (150-250 words) that describes the final redesigned image, ensuring it matches the Listing's marketing soul.",
+  "english_texts": ["List of English terms used to replace Chinese ones"]
+}}
+JSON ONLY."""
 
-Return ONLY the prompt text — no explanation, no preamble, no markdown.
-"""
+
+def select_best_image(useful_images: list, angle: str) -> dict:
+    """根据 Listing 角度从可用图片中挑选最合适的一张作为参考。"""
+    # 简单的类别映射逻辑
+    mapping = {
+        "Core Function": ["产品外观", "整体图"],
+        "Commercial Food Service": ["应用场景", "产品外观"],
+        "Small Business & Startup": ["操作面板", "整体图"],
+        "Industrial Efficiency": ["内部结构", "整体图"],
+        "Multi-Application Versatility": ["产品外观", "整体图"],
+    }
+    
+    preferred_categories = mapping.get(angle, ["产品外观", "整体图"])
+    
+    # 1. 尝试匹配首选类别
+    for cat in preferred_categories:
+        for img in useful_images:
+            if img.get("category") == cat:
+                return img
+                
+    # 2. 如果没匹配到，选第一张 useful 的
+    return useful_images[0] if useful_images else {}
 
 
 def build_prompt_gemini(image_info: dict, listing: dict,
                         product_name_en: str, style: dict,
-                        chat) -> str:
-    """使用 Gemini 视觉能力，根据图片实际内容生成精准 Prompt。"""
+                        chat, pool, model) -> dict:
+    """使用 Gemini 视觉能力，担任“视觉导演”生成精准重设计方案。"""
     full_path = image_info.get("full_path", "")
     if not full_path or not os.path.exists(full_path):
-        # fallback to template
-        return build_prompt_template(image_info, listing, product_name_en, style)
+        return {"error": "Image path not found"}
 
     sps      = listing.get("selling_points", [])
     kw_focus = listing.get("keyword_focus", [])
-    sp_block = "\n".join(f"  • {sp[:100]}" for sp in sps[:3])
+    sp_block = "\n".join(f"  • {sp}" for sp in sps[:3])
     primary_kw = kw_focus[0] if kw_focus else product_name_en
+    chinese_texts = image_info.get("chinese_texts", [])
 
-    meta = META_PROMPT_TEMPLATE.format(
+    prompt_text = VISUAL_DIRECTOR_PROMPT.format(
         product_name_en = product_name_en,
         category        = image_info.get("category", ""),
         desc            = image_info.get("description", ""),
+        chinese_texts   = ", ".join(chinese_texts) if chinese_texts else "None identified",
         angle           = listing.get("angle", ""),
         target          = listing.get("target_customer", ""),
-        title           = listing.get("title", "")[:120],
         sp_block        = sp_block,
         cn_label        = style["cn_label"],
-        palette         = style["palette"],
-        lighting        = style["lighting"],
-        background      = style["background"],
-        mood            = style["mood"],
-        text_style      = style["text_style"],
-        primary_kw      = primary_kw,
     )
 
     try:
-        img_bytes, mime = gemini_client.compress_image(full_path, max_side=800)
+        img_bytes, mime = gemini_client.compress_image(full_path, max_side=1024)
         parts = [
             types.Part.from_bytes(data=img_bytes, mime_type=mime),
-            types.Part.from_text(text=meta),
+            types.Part.from_text(text=prompt_text),
         ]
         response = gemini_client.safe_send(
-            chat, parts, timeout=60, 
+            chat, parts, timeout=120, 
             retries=len(pool) * 2 if pool else 2, 
-            pool=pool, model=text_model
+            pool=pool, model=model
         )
-        if response and response.text.strip():
-            return response.text.strip()
+        if response and response.text:
+            import re
+            # 提取 JSON 内容
+            text = response.text
+            match = re.search(r"\{.*\}", text, re.DOTALL)
+            if match:
+                return json.loads(match.group())
     except Exception as e:
-        print(f"   ⚠️  Gemini 增强失败，回退到模板: {e}")
+        print(f"   ⚠️  Gemini 视觉导演模式失败: {e}")
 
-    return build_prompt_template(image_info, listing, product_name_en, style)
+    return {"error": str(e)}
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -234,6 +259,15 @@ def run(
     use_gemini:   True = 调用 Gemini 视觉辅助生成（更精准但慢）
     text_model:   Gemini 文本模型 ID（use_gemini=True 时有效）
     """
+    # ── 检查是否已有 redesign_prompts.json ──
+    out_dir  = product_manager.get_product_dir(product_name)
+    out_path = os.path.join(out_dir, "redesign_prompts.json")
+    if os.path.exists(out_path):
+        ans = input(f"\n⚠️  已存在 {os.path.basename(out_path)}，[o]覆盖 / [s]跳过 (默认跳过): ").strip().lower()
+        if ans != "o":
+            print(f"   ⏭  跳过，使用已有数据: {out_path}")
+            return out_path
+
     # ── 加载 analysis_result.json ──
     analysis_path = os.path.join(work_folder, "analysis_result.json")
     if not os.path.exists(analysis_path):
@@ -268,8 +302,8 @@ def run(
     pool = None
     if use_gemini:
         if text_model is None:
-            text_model = gemini_client.DEFAULT_TEXT_MODEL
-        print(f"\n🧠 Gemini 增强模式（模型: {text_model}）")
+            text_model = gemini_client.DEFAULT_TEXT_MODEL 
+        print(f"\n🧠 Gemini 视觉导演模式开启（模型: {text_model}）")
         # 使用凭证轮换池
         pool   = gemini_client.CredentialPool(use_vertex=True)
         client = pool.make_client()
@@ -279,14 +313,14 @@ def run(
 
     # ── 构建所有 Prompts ──
     print(f"\n产品: {product_name_en}")
-    print(f"可用图片: {len(useful_images)} 张  |  处理组别: {listing_ids}\n")
+    print(f"可用原图: {len(useful_images)} 张  |  处理组别: {listing_ids}\n")
 
     result = {
         "product_name":    product_name,
         "product_name_en": product_name_en,
         "generated_at":    datetime.now().isoformat(timespec="seconds"),
         "work_folder":     os.path.abspath(work_folder),
-        "mode":            "gemini" if use_gemini else "template",
+        "mode":            "gemini_pro" if use_gemini else "template",
         "listings":        [],
     }
 
@@ -294,15 +328,17 @@ def run(
     for listing_id in listing_ids:
         listing = all_listings.get(listing_id)
         if not listing:
-            print(f"⚠️  Listing {listing_id} 不存在，跳过")
             continue
 
         angle  = listing.get("angle", f"listing_{listing_id}")
         style  = VISUAL_STYLES.get(angle, DEFAULT_STYLE)
 
-        print(f"{'─'*50}")
-        print(f"Listing {listing_id}: {angle} ({style['cn_label']})")
-        print(f"{'─'*50}")
+        print(f"{'═'*60}")
+        print(f"🎬 Listing {listing_id}: {angle} ({style['cn_label']})")
+        print(f"{'═'*60}")
+
+        # 🎯 修改点：处理所有 useful 图片，而不仅仅是挑选一张
+        to_process = useful_images 
 
         listing_entry = {
             "listing_id":      listing_id,
@@ -313,16 +349,27 @@ def run(
             "images":          [],
         }
 
-        for idx, img_info in enumerate(useful_images):
+        for idx, img_info in enumerate(to_process):
             img_file = img_info.get("file", "")
             category = img_info.get("category", "")
-            desc60   = img_info.get("description", "")[:55]
-            print(f"  [{idx+1:02d}/{len(useful_images):02d}] {img_file} | {category}")
+            print(f"  [{idx+1}/{len(to_process)}] 📸 处理原图: {img_file} ({category})")
 
             if use_gemini and chat:
-                prompt_text = build_prompt_gemini(img_info, listing, product_name_en, style, chat)
+                # 视觉导演会根据当前 Listing 的 angle 和 img_info 的内容实时构思
+                director_plan = build_prompt_gemini(img_info, listing, product_name_en, style, chat, pool, text_model)
+                if "error" in director_plan:
+                    prompt_text = build_prompt_template(img_info, listing, product_name_en, style)
+                    reasoning = "Gemini 请求失败，已回退到模板模式。"
+                    english_texts = []
+                else:
+                    prompt_text = director_plan.get("image_prompt", "")
+                    reasoning = director_plan.get("design_reasoning", "")
+                    english_texts = director_plan.get("english_texts", [])
+                    # print(f"    💡 设计思路: {reasoning[:60]}...")
             else:
                 prompt_text = build_prompt_template(img_info, listing, product_name_en, style)
+                reasoning = "使用预设模板生成。"
+                english_texts = []
 
             prompt_id = f"l{listing_id}_img{idx+1:02d}"
             listing_entry["images"].append({
@@ -331,6 +378,8 @@ def run(
                 "image_full_path":   img_info.get("full_path", ""),
                 "image_category":    category,
                 "image_description": img_info.get("description", ""),
+                "design_reasoning":  reasoning,
+                "english_texts":     english_texts,
                 "prompt":            prompt_text,
                 "generated":         False,
                 "output_path":       None,
@@ -372,12 +421,26 @@ if __name__ == "__main__":
     if not product_name:
         existing = product_manager.list_products()
         if existing:
+            options = [p['name'] for p in existing]
             print("\n📦 已有产品:")
-            for p in existing:
-                print(f"  {p['name']}")
-        product_name = input("\n请输入产品名: ").strip()
-        if not product_name:
-            sys.exit(1)
+            for i, name in enumerate(options, 1):
+                print(f"  [{i}] {name}")
+            
+            idx = timed_choose(
+                prompt="请选择产品序号 (默认1): ",
+                options=options,
+                default=1,
+                timeout=10
+            )
+            if 1 <= idx <= len(options):
+                product_name = options[idx-1]
+            else:
+                print(f"   ⚠️  无效选择，默认选择第一个产品: {options[0]}")
+                product_name = options[0]
+        else:
+            product_name = input("\n请输入产品名: ").strip()
+            if not product_name:
+                sys.exit(1)
 
     # 组号解析
     if args.all:
@@ -385,19 +448,18 @@ if __name__ == "__main__":
     elif args.listing:
         listing_ids = [int(x.strip()) for x in args.listing.split(",") if x.strip().isdigit()]
     else:
-        choice = input("请输入组号 (1-5，逗号分隔；0=全部；默认1): ").strip() or "1"
-        if choice == "0":
+        choice = (input("请输入组号 (1-5，逗号分隔；0=全部；默认1): ").strip()
+                  .replace(" ", ",").replace("，", ",")) # 增强容错
+        if not choice or choice == "1":
+            listing_ids = [1]
+        elif "0" in choice.split(","):
             listing_ids = [1, 2, 3, 4, 5]
         else:
             listing_ids = [int(x.strip()) for x in choice.split(",") if x.strip().isdigit()] or [1]
 
-    # 模式
-    use_gemini = args.gemini and not args.template
-    text_model = None
-    if use_gemini:
-        text_model = gemini_client.select_model(
-            prompt_text="请选择用于 Prompt 生成的文本模型 (默认1): "
-        )
+    # 模式逻辑：默认使用 Gemini，除非指定 --template
+    use_gemini = not args.template
+    text_model = gemini_client.DEFAULT_TEXT_MODEL  # 统一默认模型
 
     try:
         run(
