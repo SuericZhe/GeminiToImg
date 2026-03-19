@@ -8,7 +8,9 @@
       "Bash(python3 -c \":*)",
       "Bash(C:/ProgramData/anaconda3/python.exe -c \":*)",
       "Bash(/c/ProgramData/anaconda3/python.exe -c \":*)",
-      "Bash(rm diag.txt)"
+      "Bash(rm diag.txt)",
+      "Bash(git push:*)",
+      "Bash(git pull:*)"
     ]
   }
 }
