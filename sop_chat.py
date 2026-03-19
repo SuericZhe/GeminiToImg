@@ -2,36 +2,14 @@ import os
 import sys
 import re
 import json
-import time
 import math
 import threading
-import itertools
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
-from google import genai
 from google.genai import types
 import kb_manager
 import product_manager
-from dotenv import load_dotenv
-
-try:
-    import fitz  # PyMuPDF
-    PYMUPDF_AVAILABLE = True
-except ImportError:
-    PYMUPDF_AVAILABLE = False
-
-load_dotenv()
-
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
-PROJECT_ID = os.getenv("GCP_PROJECT_ID", "")
-LOCATION = "global"
-
-AVAILABLE_MODELS = {
-    "1": "gemini-2.5-flash",
-    "2": "gemini-2.5-pro",
-    "3": "gemini-3.1-pro-preview",
-}
-
-done_thinking = False
+import gemini_client
+import analyze_pdf
+import listing_prompt_config
 
 # ==========================================
 # SOP 资产加载
@@ -400,32 +378,6 @@ RULES:
 # ==========================================
 # 工具函数
 # ==========================================
-def extract_pdf_pages(pdf_path, product_dir):
-    """
-    将 PDF 每一页渲染成 PNG（2× 分辨率），存为 page_001.png, page_002.png …
-    页码与 Gemini 返回的 pdf_page 字段直接对应，用于精准参考图。
-    返回路径列表。
-    """
-    if not PYMUPDF_AVAILABLE:
-        print("⚠️  未安装 PyMuPDF，跳过 PDF 页面渲染。执行: pip install pymupdf")
-        return []
-
-    out_dir = os.path.join(product_dir, "pdf_pages")
-    os.makedirs(out_dir, exist_ok=True)
-
-    doc = fitz.open(pdf_path)
-    saved = []
-    mat = fitz.Matrix(2.0, 2.0)   # 2× 缩放提高清晰度
-
-    for i, page in enumerate(doc):
-        pix = page.get_pixmap(matrix=mat)
-        out_path = os.path.join(out_dir, f"page_{i+1:03d}.png")
-        pix.save(out_path)
-        saved.append(out_path)
-
-    doc.close()
-    print(f"   📄 PDF 共 {len(saved)} 页已渲染 → {out_dir}")
-    return saved
 
 
 def get_pdf_page(product_name, page_num):
@@ -619,34 +571,8 @@ def load_useful_page_paths(product_name, max_pages=10):
     return result
 
 
-def get_mime_type(file_path):
-    ext = file_path.lower().split('.')[-1]
-    if ext in ['jpg', 'jpeg']: return "image/jpeg"
-    if ext == 'png': return "image/png"
-    if ext == 'pdf': return "application/pdf"
-    return "application/octet-stream"
-
-
-def compress_image_for_api(path, max_side=900, quality=72):
-    """
-    把图片压缩到 max_side px 再返回 bytes，供发送给 Gemini API。
-    存档文件本身不受影响（只在内存中处理）。
-    需要 Pillow；若不可用则原样返回。
-    """
-    try:
-        from PIL import Image
-        import io
-        img = Image.open(path).convert("RGB")
-        w, h = img.size
-        if max(w, h) > max_side:
-            ratio = max_side / max(w, h)
-            img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=quality)
-        return buf.getvalue(), "image/jpeg"
-    except Exception:
-        with open(path, "rb") as f:
-            return f.read(), get_mime_type(path)
+# 图片压缩 — 统一使用 gemini_client 中的实现
+compress_image_for_api = gemini_client.compress_image
 
 
 def scan_target_folder(folder_path, processed_files_set):
@@ -658,7 +584,7 @@ def scan_target_folder(folder_path, processed_files_set):
         file_path = os.path.join(folder_path, file_name)
         if os.path.isfile(file_path) and file_path not in processed_files_set:
             try:
-                mime_type = get_mime_type(file_path)
+                mime_type = gemini_client._guess_mime(file_path)
                 with open(file_path, "rb") as f:
                     parts.append(types.Part.from_bytes(data=f.read(), mime_type=mime_type))
                 if mime_type.startswith("image/"):
@@ -715,57 +641,8 @@ def save_gen_progress(product_name, completed):
         json.dump({"completed": sorted(completed)}, f, indent=2)
 
 
-def loading_animation(start_time=None):
-    if start_time is None:
-        start_time = time.time()
-    while not done_thinking:
-        elapsed = time.time() - start_time
-        sys.stdout.write(f'\r⏳ 思考中... 已等待: {elapsed:.1f}s ')
-        sys.stdout.flush()
-        time.sleep(0.3)
-    sys.stdout.write('\r' + ' ' * 50 + '\r')
-    sys.stdout.flush()
-
-
-def safe_send_message(chat, message_parts, timeout=120, retries=1):
-    global done_thinking
-    for attempt in range(retries + 1):
-        done_thinking = False
-        start_time = time.time()
-        anim_thread = threading.Thread(target=loading_animation, args=(start_time,))
-        anim_thread.start()
-        try:
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(chat.send_message, message_parts)
-                response = future.result(timeout=timeout)
-            done_thinking = True
-            anim_thread.join()
-            return response
-        except TimeoutError:
-            done_thinking = True
-            anim_thread.join()
-            print(f"\n⚠️ 第 {attempt + 1} 次请求超时 ({timeout}s)！")
-            if attempt < retries:
-                print("🔄 正在自动重试...")
-            else:
-                print("❌ 重试失败，请检查网络。")
-                return None
-        except Exception as e:
-            done_thinking = True
-            anim_thread.join()
-            err_str = str(e)
-            # SSL 连接中断 / 网络波动 → 自动重试
-            is_retryable = any(kw in err_str for kw in (
-                "SSL", "UNEXPECTED_EOF", "ConnectionReset",
-                "RemoteDisconnected", "IncompleteRead", "ConnectionError"
-            ))
-            if is_retryable and attempt < retries:
-                wait = 15 * (attempt + 1)
-                print(f"\n⚠️ 网络连接中断，{wait}s 后重试 (第{attempt+1}/{retries}次)…")
-                time.sleep(wait)
-            else:
-                print(f"\n❌ API 请求发生错误: {e}")
-                return None
+# 消息发送 — 统一使用 gemini_client 中的实现
+safe_send_message = gemini_client.safe_send
 
 
 def extract_json(text):
@@ -790,12 +667,16 @@ def print_help():
 💡 【指令秘籍】:
   直接打字          正常对话（放入新文件会自动附带发送）
 
-  ── SOP 产品分析 ──
-  /analyze 产品名    分析 my_work_files/ 中的 PDF+图片
-                     → 5组标题(100-108字符) + 5条亚马逊风格卖点 + 产品特点+PDF图片映射
-  /prompts 产品名    基于分析数据生成 25 个图片Prompt (5组×5类型)
+  ── SOP 产品分析（推荐顺序） ──
+  Step 0  python analyze_pdf.py my_work_files
+                     独立运行：PDF拆分+图片分析 → 生成 analysis_result.json
+  /listings 产品名   基于 analysis_result.json 生成5组标题+卖点
+                     → 5个角度覆盖不同客群/关键词簇，保存 listings.json
+                     ✏️  如需调整生成策略，直接编辑 listing_prompt_config.py
+  /prompts  产品名   基于分析数据生成 125 个图片Prompt (5组×5类型×5变体)
                      图类型: scene / detail / real / spec / packaging
-  /images  产品名    批量生成 25 张图片（图生图，spec类型纯文生图）
+  /images   产品名   批量生成 125 张图片（图生图，spec类型纯文生图，断点续跑）
+  /analyze  产品名   （旧流程）综合分析 my_work_files/ 中的 PDF+图片
   /products          列出所有产品及当前进度
 
   ── 知识库 ──
@@ -866,7 +747,8 @@ def handle_analyze(product_name, chat, watch_folder, processed_files,
     ]
     if pdf_files:
         print(f"\n📄 正在渲染 PDF 页面（用于后续精准参考图）…")
-        page_paths = extract_pdf_pages(pdf_files[0], product_dir)
+        pdf_pages_dir = os.path.join(product_dir, "pdf_pages")
+        page_paths = analyze_pdf.split_pdf(pdf_files[0], output_dir=pdf_pages_dir)
         if page_paths:
             analyze_pdf_pages(product_name, page_paths, chat)
     else:
@@ -900,6 +782,84 @@ def handle_analyze(product_name, chat, watch_folder, processed_files,
         if hint:
             print(f"        PDF图: {hint[:80]}")
     print("\n💡 下一步: /prompts " + product_name)
+
+
+def handle_gen_listings(product_name, chat, title_library="", keywords="",
+                        work_folder="my_work_files"):
+    """
+    /listings 产品名
+    读取 analyze_pdf 产出的 analysis_result.json → 构建标题/卖点Prompt
+    → 发给 Gemini → 解析 → 保存 listings.json
+
+    标题生成逻辑完全由 listing_prompt_config.py 控制，可直接编辑那个文件调整策略。
+    """
+    print(f"\n📝 生成5组标题+卖点: {product_name}")
+
+    # ── 读取 analysis_result.json（analyze_pdf 的输出）──
+    analysis_path = os.path.join(work_folder, "analysis_result.json")
+    product_summary = {}
+    if os.path.exists(analysis_path):
+        with open(analysis_path, encoding="utf-8") as f:
+            ar = json.load(f)
+        product_summary = ar.get("product_summary", {})
+        print(f"   📂 已加载: {analysis_path}")
+        print(f"   产品: {product_summary.get('product_name_en', '—')} | "
+              f"特点: {len(product_summary.get('key_features', []))} 条")
+    else:
+        print(f"⚠️  未找到 {analysis_path}，请先运行 analyze_pdf.py")
+        print(f"   将仅凭关键词库生成，效果可能较差。")
+
+    # ── 构建 Prompt ──
+    prompt_text = listing_prompt_config.build_listing_prompt(
+        product_summary=product_summary,
+        title_library=title_library,
+        keywords=keywords,
+    )
+
+    print("📤 正在请求 Gemini 生成5组标题+卖点…")
+    response = safe_send_message(
+        chat,
+        [types.Part.from_text(text=prompt_text)],
+        timeout=180,
+        retries=2
+    )
+    if not response:
+        return
+
+    data = extract_json(response.text)
+    if not data or "listings" not in data:
+        print("❌ 解析失败，原始回复：")
+        print(response.text[:2000])
+        return
+
+    # ── 保存到 products/[name]/listings.json ──
+    product_dir = product_manager.get_product_dir(product_name)
+    os.makedirs(product_dir, exist_ok=True)
+    listings_path = os.path.join(product_dir, "listings.json")
+    with open(listings_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    print(f"\n✅ 5组标题+卖点已保存: {listings_path}")
+
+    # ── 打印预览 ──
+    print(f"\n{'='*60}")
+    print(f"产品: {data.get('product_name_en', '—')}")
+    print(f"{'='*60}")
+    for lst in data.get("listings", []):
+        title      = lst.get("title", "")
+        char_count = lst.get("title_char_count", len(title))
+        angle      = lst.get("angle", "")
+        rationale  = lst.get("angle_rationale", "")
+        kw_focus   = ", ".join(lst.get("keyword_focus", []))
+        print(f"\n  [{lst['id']}] {angle}  ({char_count} 字符)")
+        if rationale:
+            print(f"       定位: {rationale}")
+        if kw_focus:
+            print(f"       关键词: {kw_focus}")
+        print(f"       标题: {title}")
+        for i, sp in enumerate(lst.get("selling_points", []), 1):
+            print(f"       卖点{i}: {sp[:110]}{'…' if len(sp)>110 else ''}")
+
+    print(f"\n💡 下一步: /prompts {product_name}")
 
 
 def handle_gen_prompts(product_name, chat):
@@ -952,7 +912,7 @@ def handle_gen_images(product_name, use_vertex, model_alias="banana2"):
     每个 listing 先全部生完（5类型×5张=25张），再进下一个 listing。
     可用模型别名：banana2 (flash) / pro (高质量)
     """
-    from main import generate_my_image
+    from image_generator import generate_my_image
 
     prompts_data = product_manager.load_image_prompts(product_name)
     if not prompts_data:
@@ -1112,8 +1072,8 @@ def handle_list_products():
 # 主程序
 # ==========================================
 def start_chat_session(watch_folder):
-    print("🚀 初始化 Vertex AI 客户端…")
-    client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
+    print("🚀 初始化 Gemini 客户端…")
+    client = gemini_client.create_client()
 
     # 从 .env 读取是否使用 Vertex 图生图
     use_vertex = os.getenv("USE_VERTEX_AI", "False").strip().lower() in ("true", "1", "yes")
@@ -1122,16 +1082,9 @@ def start_chat_session(watch_folder):
     title_library, keywords = load_sop_assets()
     print(f"📚 标题库: {len(title_library)} 字符 | 关键词库: {len(keywords)} 字符")
 
-    # 模型选择
-    print("\n--- 🧠 选择模型 ---")
-    for key, name in AVAILABLE_MODELS.items():
-        print(f"  [{key}] {name}")
-    model_choice = input("请选择模型序号 (默认2 - pro): ").strip() or "2"
-    selected_model = AVAILABLE_MODELS.get(model_choice, "gemini-2.5-pro")
-
-    search_tool = types.Tool(google_search=types.GoogleSearch())
-    config = types.GenerateContentConfig(tools=[search_tool])
-    chat = client.chats.create(model=selected_model, config=config)
+    # 模型选择（2 选 1）
+    selected_model = gemini_client.select_model()
+    chat = gemini_client.create_chat(client, model=selected_model, with_search=True)
 
     processed_files = set()
     current_ref_images = []   # 本次会话中捕获到的产品参考图
@@ -1156,6 +1109,11 @@ def start_chat_session(watch_folder):
             product_name = user_input.split(" ", 1)[1].strip()
             handle_analyze(product_name, chat, watch_folder, processed_files,
                            title_library, keywords, current_ref_images)
+            continue
+
+        if user_input.startswith("/listings "):
+            product_name = user_input.split(" ", 1)[1].strip()
+            handle_gen_listings(product_name, chat, title_library, keywords, watch_folder)
             continue
 
         if user_input.startswith("/prompts "):

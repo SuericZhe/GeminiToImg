@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(python -c \":*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(ls e:/GeminiToImg/*.py)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(f''''  [{i[useful]}] {i[file]} | {i.get\\(category,?\\)} | {i.get\\(description,\\)[:60]}''''\\) for i in d.get\\(''''images'''',[]\\)]\")",
+      "Bash(python3 -c \":*)",
+      "Bash(C:/ProgramData/anaconda3/python.exe -c \":*)",
+      "Bash(/c/ProgramData/anaconda3/python.exe -c \":*)",
+      "Bash(rm diag.txt)"
     ]
   }
 }
