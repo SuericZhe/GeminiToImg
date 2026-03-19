@@ -54,6 +54,7 @@ def run(
     product_name: str,
     listing_ids:  list = None,
     image_model:  str  = None,
+    engine:       str  = None,
     reset:        bool = False,
 ):
     """
@@ -70,14 +71,20 @@ def run(
         print(f"   请先运行: python build_redesign_prompts.py {product_name}")
         return
 
-    if image_model is None:
-        image_model = gemini_client.DEFAULT_IMAGE_MODEL
+    # ── 引擎与模型 ───────────────────────────────────────
+    if engine is None:
+        engine = os.getenv("IMAGE_GENERATOR", "gemini").strip().lower()
 
-    # main.py 的 MODELS 用别名，而不是完整 model ID
-    # 把完整 ID 反向映射回别名
-    from image_generator import MODELS as IMG_ALIAS_MAP
-    alias_reverse = {v: k for k, v in IMG_ALIAS_MAP.items()}
-    model_alias = alias_reverse.get(image_model, "banana2")
+    if engine == "seedream":
+        model_alias = image_model or ""
+        print(f"🎨 生图引擎: Seedream  |  模型: {model_alias or '默认(4.5)'}")
+    else:
+        if image_model is None:
+            image_model = gemini_client.DEFAULT_IMAGE_MODEL
+        from image_generator import MODELS as IMG_ALIAS_MAP
+        alias_reverse = {v: k for k, v in IMG_ALIAS_MAP.items()}
+        model_alias = alias_reverse.get(image_model, "banana2")
+        print(f"🎨 生图引擎: Gemini  |  模型: {image_model}")
 
     use_vertex = os.getenv("USE_VERTEX_AI", "False").strip().lower() in ("true", "1", "yes")
 
@@ -204,6 +211,9 @@ if __name__ == "__main__":
     parser.add_argument("--listing", default=None, help="组号，逗号分隔，如 1,2")
     parser.add_argument("--all",     action="store_true", help="全部组")
     parser.add_argument("--reset",   action="store_true", help="清除进度，全部重跑")
+    parser.add_argument("--engine",  default=None,
+                        choices=["gemini", "seedream"],
+                        help="生图引擎 (默认读 .env IMAGE_GENERATOR)")
     args = parser.parse_args()
 
     product_name = args.product_name
@@ -217,8 +227,16 @@ if __name__ == "__main__":
         if not product_name:
             sys.exit(1)
 
-    # 选择生图模型
-    image_model = gemini_client.select_image_model()
+    # 选择生图引擎与模型
+    engine = args.engine
+    if engine is None:
+        engine = os.getenv("IMAGE_GENERATOR", "gemini").strip().lower()
+
+    if engine == "seedream":
+        from SeedDream import select_model as _seedream_select
+        image_model = _seedream_select()
+    else:
+        image_model = gemini_client.select_image_model()
 
     # 组号
     if args.all:
@@ -248,6 +266,7 @@ if __name__ == "__main__":
             product_name = product_name,
             listing_ids  = listing_ids,
             image_model  = image_model,
+            engine       = engine,
             reset        = args.reset,
         )
     except KeyboardInterrupt:

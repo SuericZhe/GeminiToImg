@@ -39,10 +39,15 @@ def run(
     skip:         str  = "",
     text_model:   str  = None,
     image_model:  str  = None,
+    engine:       str  = "gemini",
 ):
     print(f"\n{'═'*60}")
     print(f"  产品重设计流水线  |  {product_name}  |  组别: {listing_ids}")
+    print(f"  生图引擎: {engine.upper()}")
     print(f"{'═'*60}\n")
+
+    # 写入环境变量，让 image_generator 路由生效
+    os.environ["IMAGE_GENERATOR"] = engine
 
     # ── Step 1 ─────────────────────────────────────────────────────
     if "1" not in skip:
@@ -110,6 +115,7 @@ def run(
             product_name = product_name,
             listing_ids  = listing_ids,
             image_model  = image_model,
+            engine       = engine,
         )
     else:
         print("⏭  Step 4/5  跳过生图")
@@ -123,6 +129,7 @@ def run(
                 product_name   = product_name,
                 work_folder    = WORK_FOLDER,
                 listing_filter = None,
+                engine         = engine,
             )
         else:
             for lid in listing_ids:
@@ -130,6 +137,7 @@ def run(
                     product_name   = product_name,
                     work_folder    = WORK_FOLDER,
                     listing_filter = lid,
+                    engine         = engine,
                 )
     else:
         print("⏭  Step 5/5  跳过场景图")
@@ -143,6 +151,9 @@ if __name__ == "__main__":
     parser.add_argument("--listing", default=None, help="组号，逗号分隔，默认全部5组")
     parser.add_argument("--skip",    default=None,
                         help="跳过的步骤编号，如 --skip 12 跳过Step1和Step2，--skip 1234 只跑Step5")
+    parser.add_argument("--engine",  default=None,
+                        choices=["gemini", "seedream"],
+                        help="生图引擎 (默认读 .env IMAGE_GENERATOR，未设置则用 gemini)")
     args = parser.parse_args()
 
     product_name = args.product_name or input("请输入产品名: ").strip()
@@ -184,10 +195,19 @@ if __name__ == "__main__":
         # Step 4 & 5: 生图类，默认不自动跳过，保持每次可重新生成
         print(f"\n   将跳过步骤: [{skip or '无'}]")
 
+    # 选择引擎
+    engine = args.engine or os.getenv("IMAGE_GENERATOR", "gemini").strip().lower()
+
     # 选择模型
-    text_model  = gemini_client.select_model()  if ("1" not in skip or "2" not in skip or "3" not in skip) else None
-    image_model = gemini_client.select_image_model() if "4" not in skip else None
-    # Step 5 的模型已在 build_scene_images 中硬编码（pro + flash），无需额外选择
+    text_model  = gemini_client.select_model() if ("1" not in skip or "2" not in skip or "3" not in skip) else None
+    if "4" not in skip:
+        if engine == "seedream":
+            from SeedDream import select_model as _seedream_select
+            image_model = _seedream_select()
+        else:
+            image_model = gemini_client.select_image_model()
+    else:
+        image_model = None
 
     try:
         run(
@@ -196,6 +216,7 @@ if __name__ == "__main__":
             skip         = skip,
             text_model   = text_model,
             image_model  = image_model,
+            engine       = engine,
         )
     except KeyboardInterrupt:
         print("\n\n🛑 已中断")

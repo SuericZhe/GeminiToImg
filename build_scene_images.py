@@ -313,12 +313,19 @@ def build_scene_images(
     skip_main:      bool = False,   # 跳过主图（无文字）
     skip_feature:   bool = False,   # 跳过副图（含特点文字）
     use_vertex:     bool = None,
+    engine:         str  = None,     # 生图引擎：gemini | seedream
 ) -> dict:
     """
     执行完整的场景图生成流程。
     返回 {listing_id: [saved_paths]} 字典。
     """
     work_folder = os.path.abspath(work_folder)
+
+    # ── 引擎选择 ────────────────────────────────────────
+    if engine is None:
+        engine = os.getenv("IMAGE_GENERATOR", "gemini").strip().lower()
+    os.environ["IMAGE_GENERATOR"] = engine
+    print(f"🎨 生图引擎: {'Seedream' if engine == 'seedream' else 'Gemini'}")
 
     # ── 读取数据 ──
     print(f"\n📂 工作文件夹: {work_folder}")
@@ -565,8 +572,8 @@ if __name__ == "__main__":
         print("\n🎨 生成内容:")
         content_options = [
             "主图 + 副图  (2张无文字主图 + 8张特点副图，共10张/组)",
-            "仅主图       (2张无文字纯场景图/组，gemini-3-pro-image-preview)",
-            "仅副图       (8张特点文字副图/组，gemini-3.1-flash-image-preview)",
+            "仅主图       (2张无文字纯场景图/组)",
+            "仅副图       (8张特点文字副图/组)",
         ]
         for i, opt in enumerate(content_options, 1):
             print(f"  [{i}] {opt}")
@@ -575,13 +582,27 @@ if __name__ == "__main__":
         skip_feature = (content_idx == 2)
         print(f"   ✅ {content_options[content_idx - 1].split('(')[0].strip()}")
 
-        # ── ④ 执行 ──────────────────────────────────────────────
+        # ── ④ 选择生图引擎 ──────────────────────────────────────
+        default_engine = os.getenv("IMAGE_GENERATOR", "gemini").strip().lower()
+        engine_options = ["gemini", "seedream"]
+        default_engine_idx = 2 if default_engine == "seedream" else 1
+        print(f"\n🔧 生图引擎 (默认: {default_engine}):")
+        for i, opt in enumerate(engine_options, 1):
+            mark = " (默认)" if opt == default_engine else ""
+            print(f"  [{i}] {opt}{mark}")
+        engine_idx = timed_choose(f"\n请输入序号 (默认{default_engine_idx}): ",
+                                  engine_options, default=default_engine_idx)
+        engine = engine_options[engine_idx - 1] if 1 <= engine_idx <= 2 else default_engine
+        print(f"   ✅ 引擎: {engine}")
+
+        # ── ⑤ 执行 ──────────────────────────────────────────────
         build_scene_images(
             product_name   = product_name,
             work_folder    = DEFAULT_WORK_FOLDER,
             listing_filter = listing_filter,
             skip_main      = skip_main,
             skip_feature   = skip_feature,
+            engine         = engine,
         )
 
     except KeyboardInterrupt:

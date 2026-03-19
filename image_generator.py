@@ -12,7 +12,6 @@ from google.genai import types
 # ---------------------------------------------------------
 # 1. 基础配置映射 & 全局环境变量加载
 # ---------------------------------------------------------
-# 加载 .env 文件中的所有配置
 load_dotenv()
 
 # 自动配置代理 (如果 .env 中有设置，保障网络连通性)
@@ -21,10 +20,13 @@ https_proxy = os.getenv("HTTPS_PROXY")
 if http_proxy: os.environ["HTTP_PROXY"] = http_proxy
 if https_proxy: os.environ["HTTPS_PROXY"] = https_proxy
 
+# ── 引擎选择 ─────────────────────────────────────────────────────────────
+IMAGE_ENGINE = os.getenv("IMAGE_GENERATOR", "gemini").strip().lower()
+
 MODELS = {
     "banana2": "gemini-3.1-flash-image-preview",
     "pro": "gemini-3-pro-image-preview",
-    "banana": "gemini-2.5-flash-image"
+    "banana": "claude-sonnet-4-6-image"
 }
 
 # ==========================================
@@ -38,7 +40,7 @@ def _get_img_pool():
     global _img_pool
     if _img_pool is None:
         from gemini_client import CredentialPool
-        _img_pool = CredentialPool(for_image=True)
+        _img_pool = CredentialPool()
         print(f"🎰 生图凭证池已初始化: {_img_pool.summary()}")
     return _img_pool
 
@@ -53,6 +55,7 @@ def show_runtime(stop_event):
             time.sleep(0.1)
     except KeyboardInterrupt:
         pass
+
 
 def _compress_if_large(path, max_mb=2):
     """若图片超过 max_mb MB，压缩为 JPEG 后覆盖保存，返回最终路径。"""
@@ -78,24 +81,44 @@ def _compress_if_large(path, max_mb=2):
     return path
 
 
-def generate_my_image(prompt, model_alias="banana2", image_paths=None, num_images=1, seed=None, use_vertex=False, output_dir="generated_images", file_prefix=None):
+def _route_generate(prompt, model_alias="banana2", image_paths=None,
+                     num_images=1, seed=None, output_dir="generated_images",
+                     file_prefix=None):
     """
-    终极融合版：完全由 .env 驱动的生成核心
-    生图任务统一使用 API Key + Vertex JSON 联合凭证池，超时自动切换。
-    use_vertex 参数保留向后兼容，但不影响凭证池行为。
+    引擎路由：根据 IMAGE_GENERATOR 环境变量选择 Gemini 或 Seedream。
+    参数与 generate_my_image 完全对齐。
+    """
+    if IMAGE_ENGINE == "seedream":
+        from SeedDream import generate
+        return generate(
+            prompt      = prompt,
+            image_paths = image_paths,
+            num_images  = num_images,
+            seed        = seed,
+            model       = model_alias,   # 传入完整 model endpoint
+            output_dir  = output_dir,
+            file_prefix = file_prefix,
+        )
+    else:
+        # Gemini 路径：直接调用原函数
+        return _generate_gemini(
+            prompt, model_alias, image_paths,
+            num_images, seed, output_dir, file_prefix,
+        )
+
+
+def _generate_gemini(prompt, model_alias="banana2", image_paths=None,
+                     num_images=1, seed=None, output_dir="generated_images",
+                     file_prefix=None):
+    """
+    Gemini 生图核心（原 generate_my_image 逻辑）。
+    保留原函数所有行为不变。
     """
     model_id = MODELS.get(model_alias, model_alias)
 
-    # ==========================================
-    # [核心] 使用联合凭证池创建首个客户端
-    # 规则: 图像任务 = API + Vertex 联合池；自动轮换
-    # ==========================================
     pool   = _get_img_pool()
     client = pool.make_client()
 
-    # ==========================================
-    # 资源预加载与模式判定
-    # ==========================================
     os.makedirs(output_dir, exist_ok=True)
     saved_paths = []
 
@@ -105,7 +128,7 @@ def generate_my_image(prompt, model_alias="banana2", image_paths=None, num_image
 
     contents_to_send = []
     valid_paths = []
-    
+
     for path in paths:
         if path and os.path.exists(path):
             mime_type, _ = mimetypes.guess_type(path)
@@ -114,25 +137,20 @@ def generate_my_image(prompt, model_alias="banana2", image_paths=None, num_image
                 img_data = f.read()
             contents_to_send.append(types.Part.from_bytes(data=img_data, mime_type=mime_type))
             valid_paths.append(path)
-    
+
     contents_to_send.append(types.Part.from_text(text=prompt))
 
     mode = "txt2img" if not valid_paths else ("img2img" if len(valid_paths) == 1 else "multi_img2img")
     print(f"🚀 [{mode}] 正在调用模型: {model_id} | 图片数: {len(valid_paths)}")
-    
-    # ==========================================
-    # 执行生成与结果解析
-    # ==========================================
-    # 重试 & 超时配置
+
     MAX_RETRIES      = 4
-    REQUEST_INTERVAL = 12     # 每张图之间的固定间隔（秒）
-    GEN_TIMEOUT      = 180    # 单次生成超时（秒）
-    IMAGE_PER_CRED   = 10     # 每个凭证单次运行最多生成图片数
+    REQUEST_INTERVAL = 12
+    GEN_TIMEOUT      = 180
+    IMAGE_PER_CRED   = 10
 
     try:
         for i in range(num_images):
 
-            # ── 主动检查：当前凭证是否已达 10 张上限 ──
             if pool.at_image_limit(IMAGE_PER_CRED):
                 print(f"\n📊 当前凭证已达 {IMAGE_PER_CRED} 张上限，主动切换下一个凭证…")
                 cred   = pool.rotate()
@@ -190,27 +208,25 @@ def generate_my_image(prompt, model_alias="banana2", image_paths=None, num_image
                                 file_name = f"{name_prefix}_{timestamp}_{seed_str}_{i+1}.jpg"
                                 full_path = os.path.join(output_dir, file_name)
 
-                                # 统一转为 JPEG 保存
                                 try:
                                     from PIL import Image as _PIL_Image
                                     import io as _io
                                     img_obj = _PIL_Image.open(_io.BytesIO(raw_data)).convert("RGB")
                                     img_obj.save(full_path, format="JPEG", quality=90)
                                 except Exception:
-                                    # PIL 不可用时直接写原始数据（保留扩展名 .jpg 作标识）
                                     with open(full_path, "wb") as f:
                                         f.write(raw_data)
 
                                 full_path = _compress_if_large(full_path, max_mb=2)
                                 saved_paths.append(full_path)
-                                pool.record_image()   # ← 记录本凭证成功生成一张
+                                pool.record_image()
                                 print(f"\n✅ 保存成功: {full_path} (耗时 {duration:.1f}s)")
                                 image_saved = True
                                 break
 
                     if not image_saved:
                         print(f"\n⚠️ 未获取到图片数据。原因: {response.candidates[0].finish_reason if response.candidates else '未知'}")
-                    break  # 成功或无数据，跳出重试循环
+                    break
 
                 except (FuturesTimeoutError, TimeoutError):
                     stop_event.set()
@@ -227,8 +243,6 @@ def generate_my_image(prompt, model_alias="banana2", image_paths=None, num_image
                     stop_event.set()
                     if timer_thread.is_alive(): timer_thread.join()
                     if attempt < MAX_RETRIES:
-                        # 任何错误（429/限流/SSL/服务不可用/认证失败等）统一切换凭证
-                        # 若只有一个凭证且是 429，加等待避免立刻再被限流
                         err_str = str(e)
                         print(f"\n⚠️ 请求失败: {err_str[:120]}")
                         cred   = pool.rotate()
@@ -248,37 +262,45 @@ def generate_my_image(prompt, model_alias="banana2", image_paths=None, num_image
 
     return saved_paths
 
+
+def generate_my_image(prompt, model_alias="banana2", image_paths=None, num_images=1,
+                      seed=None, use_vertex=False, output_dir="generated_images",
+                      file_prefix=None):
+    """
+    统一生图入口。
+    IMAGE_GENERATOR=gemini → Gemini 路径
+    IMAGE_GENERATOR=seedream → Seedream 路径
+
+    use_vertex 参数保留（仅 Gemini 有效），不影响其他引擎。
+    """
+    return _route_generate(
+        prompt      = prompt,
+        model_alias = model_alias,
+        image_paths = image_paths,
+        num_images  = num_images,
+        seed        = seed,
+        output_dir  = output_dir,
+        file_prefix = file_prefix,
+    )
+
+
 if __name__ == "__main__":
-    # ==========================================
-    # 🌟 极简业务调用层
-    # ==========================================
-    
-    # [核心改动] 从 .env 动态读取开关，并将字符串转换为真正的布尔值 True/False
-    # 这样你以后切通道，连这行代码都不用碰，直接去改 .env 文件保存即可生效
     ENV_USE_VERTEX = os.getenv("USE_VERTEX_AI", "False").strip().lower() in ("true", "1", "yes")
-    
-    # 1. 生成数量
+
     COUNT = 1
-
-    # 2. 提示词 (文生图或图生图指令)
     PRODUCT_DETAIL = "这是铝箔盒封口机，根据这个机器的特点进行重新设计，全英，不要水印，能作为亚马逊电商主图，极致细节，比例1:1"
-    
-    # 3. 风格追加词 (不需要则留空 "")
-    STYLE_PROMPT = "" 
+    STYLE_PROMPT = ""
+    MY_MACHINES = ["local_images/功能2.png"]
+    STYLE_REF = None
 
-    # 4. 图片参数 (纯文生图请设为 [] 和 None)
-    MY_MACHINES = ["local_images/功能2.png"] 
-    STYLE_REF = None 
-
-    # --- 组装与调用 ---
     all_imgs = (MY_MACHINES if MY_MACHINES else []) + ([STYLE_REF] if STYLE_REF else [])
     final_prompt = f"{PRODUCT_DETAIL} {STYLE_PROMPT}".strip()
 
     generate_my_image(
-        prompt=final_prompt, 
-        model_alias="pro",           # 调用 pro 模型
-        image_paths=all_imgs, 
+        prompt=final_prompt,
+        model_alias="pro",
+        image_paths=all_imgs,
         num_images=COUNT,
-        seed=None,                   
-        use_vertex=ENV_USE_VERTEX    # 将 .env 解析出的布尔值传给核心函数
+        seed=None,
+        use_vertex=ENV_USE_VERTEX
     )
