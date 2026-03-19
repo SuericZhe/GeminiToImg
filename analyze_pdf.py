@@ -287,9 +287,9 @@ def analyze_folder(
         print("⚠️  文件夹中没有找到任何图片或 PDF，退出。")
         return {}
 
-    # ── Step 4: 初始化 Gemini 客户端 + 凭证池（支持 429 自动切换）──
-    pool   = gemini_client.CredentialPool(for_image=False)
-    client = pool.make_client(pool.current())
+    # ── Step 4: 初始化 Gemini 客户端 + 凭证池（支持 API/Vertex 自动轮换）──
+    pool   = gemini_client.CredentialPool(use_vertex=True)
+    client = pool.make_client()
     chat   = gemini_client.create_chat(client, model=model)
     print(f"   凭证池: {pool.summary()}")
 
@@ -320,8 +320,11 @@ def analyze_folder(
             text=_build_batch_prompt(batch_files, batch_idx, total_batches, start_num)
         ))
 
-        response = gemini_client.safe_send(chat, parts, timeout=120, retries=2,
-                                           pool=pool, model=model)
+        response = gemini_client.safe_send(
+            chat, parts, timeout=120, 
+            retries=len(pool) * 2,
+            pool=pool, model=model
+        )
 
         if not response:
             print(f"   ⚠️  第 {batch_idx+1} 批分析失败（全部重试耗尽）")
@@ -371,8 +374,11 @@ def analyze_folder(
     product_summary = {}
     if useful_images:
         summary_parts = [types.Part.from_text(text=_build_summary_prompt(useful_images))]
-        summary_resp  = gemini_client.safe_send(chat, summary_parts, timeout=120, retries=2,
-                                               pool=pool, model=model)
+        summary_resp  = gemini_client.safe_send(
+            chat, summary_parts, timeout=120, 
+            retries=len(pool) * 2,
+            pool=pool, model=model
+        )
         if summary_resp:
             product_summary = extract_json(summary_resp.text) or {}
         if not product_summary:

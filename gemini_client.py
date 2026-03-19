@@ -55,9 +55,9 @@ class CredentialPool:
     超时或限流时调用 rotate() 切换到下一个凭证。
     """
 
-    def __init__(self, for_image: bool = False):
+    def __init__(self, use_vertex: bool = True):
         api_keys     = _collect_api_keys()
-        vertex_paths = _collect_vertex_creds() if for_image else []
+        vertex_paths = _collect_vertex_creds() if use_vertex else []
         self._pool = (
             [{"type": "api",    "key":  k} for k in api_keys]
             + [{"type": "vertex", "path": p} for p in vertex_paths]
@@ -260,7 +260,11 @@ def safe_send(chat, message_parts, timeout: int = 120, retries: int = 2,
             is_retryable = any(kw in err_str for kw in retryable_keywords)
 
             # 429 / RESOURCE_EXHAUSTED 也视为可轮换凭证的重试错误
-            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
+            if any(kw in err_str.upper() for kw in ["429", "RESOURCE_EXHAUSTED", "QUOTA"]):
+                is_retryable = True
+            
+            # 鉴权错误也触发轮换
+            if any(kw in err_str.upper() for kw in ["401", "403", "API_KEY_INVALID", "PERMISSION_DENIED"]):
                 is_retryable = True
 
             if is_retryable and attempt < retries:

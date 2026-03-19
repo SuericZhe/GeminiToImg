@@ -200,7 +200,11 @@ def build_prompt_gemini(image_info: dict, listing: dict,
             types.Part.from_bytes(data=img_bytes, mime_type=mime),
             types.Part.from_text(text=meta),
         ]
-        response = gemini_client.safe_send(chat, parts, timeout=60, retries=1)
+        response = gemini_client.safe_send(
+            chat, parts, timeout=60, 
+            retries=len(pool) * 2 if pool else 2, 
+            pool=pool, model=text_model
+        )
         if response and response.text.strip():
             return response.text.strip()
     except Exception as e:
@@ -261,11 +265,14 @@ def run(
 
     # ── 初始化 Gemini（仅 use_gemini 模式需要）──
     chat = None
+    pool = None
     if use_gemini:
         if text_model is None:
             text_model = gemini_client.DEFAULT_TEXT_MODEL
         print(f"\n🧠 Gemini 增强模式（模型: {text_model}）")
-        client = gemini_client.create_client()
+        # 使用凭证轮换池
+        pool   = gemini_client.CredentialPool(use_vertex=True)
+        client = pool.make_client()
         chat   = gemini_client.create_chat(client, model=text_model)
     else:
         print("\n⚡ 模板模式（无需 API，秒速生成）")

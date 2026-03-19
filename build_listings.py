@@ -100,7 +100,9 @@ def run(
 
     # ── 初始化 Gemini ──
     print(f"\n🧠 文本模型: {text_model}")
-    client = gemini_client.create_client()
+    # 使用凭证轮换池，支持 API Key 和 Vertex 自动切换
+    pool   = gemini_client.CredentialPool(use_vertex=True)
+    client = pool.make_client()
     chat   = gemini_client.create_chat(client, model=text_model)
 
     print("📤 正在请求 Gemini 生成5组标题+卖点…")
@@ -108,20 +110,25 @@ def run(
         chat,
         [types.Part.from_text(text=prompt_text)],
         timeout=180,
-        retries=2,
+        retries=len(pool) * 2,  # 确保每个凭证至少有重试机会
+        pool=pool,
+        model=text_model
     )
 
-    # 主模型失败时自动降级到备选模型
+    # 主模型失败时自动降级到备选模型 (此时 safe_send 已经处理了凭证轮换)
     if not response:
-        fallback_model = "gemini-2.5-pro"
+        fallback_model = "gemini-2.5-pro"  # 备选模型
         if text_model != fallback_model:
             print(f"⚠️  主模型失败，自动降级到 {fallback_model} 重试…")
+            # 重新从当前池子里的有效凭证开始
             fallback_chat = gemini_client.create_chat(client, model=fallback_model)
             response = gemini_client.safe_send(
                 fallback_chat,
                 [types.Part.from_text(text=prompt_text)],
                 timeout=180,
-                retries=1,
+                retries=len(pool),
+                pool=pool,
+                model=fallback_model
             )
 
     if not response:

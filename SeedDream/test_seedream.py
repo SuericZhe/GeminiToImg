@@ -1,5 +1,6 @@
 import os
 from dotenv import load_dotenv
+from SeedDream.SeedreamClient import SeedreamClient
 
 # 1. 加载 .env 文件中的环境变量
 load_dotenv()
@@ -18,7 +19,7 @@ if __name__ == "__main__":
     try:
         print("=== 测试 1: 使用默认的 4.5 模型生成单图 ===")
         # 不传 model_endpoint，默认就是 4.5 模型
-        local_files_45 = client.text_to_single_image(prompt=prompt_text, size="1024x1024")
+        local_files_45 = client.text_to_single_image(prompt=prompt_text)
         print(f"✅ 成功！图片已保存至: {local_files_45[0]}")
 
         print("\n=== 测试 2: 切换到 5.0 Lite 模型生成组图 ===")
